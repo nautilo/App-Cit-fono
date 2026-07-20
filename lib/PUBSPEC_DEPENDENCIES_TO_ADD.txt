@@ -1,0 +1,11 @@
+Agrega estas dependencias en pubspec.yaml para que funcione el audio PCM crudo del citófono ESP32:
+
+flutter_sound: ^9.28.0
+permission_handler: ^11.3.1
+
+Luego ejecuta:
+flutter pub get
+
+Android: verifica que android/app/src/main/AndroidManifest.xml tenga permiso de micrófono:
+<uses-permission android:name="android.permission.RECORD_AUDIO" />
+<uses-permission android:name="android.permission.INTERNET" />
