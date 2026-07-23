@@ -93,24 +93,44 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  HttpOverrides.global = MyHttpOverrides();
-  await Firebase.initializeApp();
 
-  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+  try {
+    HttpOverrides.global = MyHttpOverrides();
+    await Firebase.initializeApp();
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-  await CallNotifications.ensureInitialized(
-    onResponse: (response) {
-      final payload = response.payload ?? '';
-      if (payload.startsWith('chat_message')) {
-        openMessagesFromNotification();
-        return;
-      }
-      FlutterRingtonePlayer().stop();
-      CallNotifications.cancelIncoming();
-    },
-  );
+    await CallNotifications.ensureInitialized(
+      onResponse: (response) {
+        final payload = response.payload ?? '';
+        if (payload.startsWith('chat_message')) {
+          openMessagesFromNotification();
+          return;
+        }
+        FlutterRingtonePlayer().stop();
+        CallNotifications.cancelIncoming();
+      },
+    );
+    runApp(const CitofonoApp());
 
-  runApp(const CitofonoApp());
+  } catch (error, stackTrace) {
+    runApp(
+      MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: Scaffold(
+          backgroundColor: Colors.red,
+          body: SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16.0),
+              child: Text(
+                "ERROR DE INICIO FATAL:\n\n$error\n\n$stackTrace",
+                style: const TextStyle(color: Colors.white, fontSize: 14),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class CitofonoApp extends StatefulWidget {
