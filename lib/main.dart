@@ -49,7 +49,20 @@ class MyHttpOverrides extends HttpOverrides {
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   WidgetsFlutterBinding.ensureInitialized();
   DartPluginRegistrant.ensureInitialized();
-  await Firebase.initializeApp();
+  
+  if (Platform.isIOS) {
+    await Firebase.initializeApp(
+      options: const FirebaseOptions(
+        apiKey: 'AIzaSyCKLvyBn0Hfg6eQo-LZFgE2WdgnC-zUgyA', 
+        appId: '1:297733501497:ios:0fe2569a5069a0f17953e8', 
+        messagingSenderId: '297733501497', 
+        projectId: 'citofono-e2a73', 
+        iosBundleId: 'com.example.citofono', 
+      ),
+    );
+  } else {
+    await Firebase.initializeApp();
+  }
 
   final type = message.data['type'];
 
@@ -96,7 +109,21 @@ void main() async {
 
   try {
     HttpOverrides.global = MyHttpOverrides();
-    await Firebase.initializeApp();
+    
+    if (Platform.isIOS) {
+      await Firebase.initializeApp(
+        options: const FirebaseOptions(
+          apiKey: 'AIzaSyCKLvyBn0Hfg6eQo-LZFgE2WdgnC-zUgyA', 
+          appId: '1:297733501497:ios:0fe2569a5069a0f17953e8', 
+          messagingSenderId: '297733501497', 
+          projectId: 'citofono-e2a73', 
+          iosBundleId: 'com.example.citofono', 
+        ),
+      );
+    } else {
+      await Firebase.initializeApp();
+    }
+
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
     await CallNotifications.ensureInitialized(
@@ -110,6 +137,7 @@ void main() async {
         CallNotifications.cancelIncoming();
       },
     );
+    
     runApp(const CitofonoApp());
 
   } catch (error, stackTrace) {
