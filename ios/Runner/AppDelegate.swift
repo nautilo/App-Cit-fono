@@ -1,16 +1,23 @@
-import Flutter
 import UIKit
+import Flutter
+import AVFoundation
 
-@main
-@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
+@UIApplicationMain
+@objc class AppDelegate: FlutterAppDelegate {
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
-  }
+    
+    do {
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetooth, .defaultToSpeaker])
+        try session.setActive(true)
+    } catch {
+        print("Error configurando AVAudioSession: \(error)")
+    }
 
-  func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
-    GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    GeneratedPluginRegistrant.register(with: self)
+    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 }
