@@ -33,16 +33,11 @@ class Esp32AudioBridge {
 
   static const int micDownsampleFactor = micCaptureSampleRate ~/ sampleRate; 
 
-  // RING BUFFER ESTRICTO (Petición del agente): Máximo 2 frames (40ms / 1280 bytes)
-  // Si la red se pone lenta, bota el audio viejo para mantener el tiempo real.
-  static const int maxQueuedBytes = txFrameBytes * 2;
-
   // Jitter Buffer RX: Acumular mínimo 3 frames (1920 bytes) antes de inyectar a iOS.
   static const int rxJitterThreshold = txFrameBytes * 3; 
 
   static const int micWarmupDiscardMs = 700;
   static const int rxWarmupDiscardMs = 250;
-  static const int maxTxBytesPerSecond = 34560;
 
   static const MethodChannel _nativeAudioTrack = MethodChannel('gladiator/citofono_audio_track');
 
@@ -56,7 +51,6 @@ class Esp32AudioBridge {
     }
   }
 
-  // MÉTODO RESTAURADO PARA CONSERJE Y RESIDENTE
   static Future<void> resetHandsetState() async {
     if (!Platform.isAndroid) return;
     try {
@@ -71,7 +65,6 @@ class Esp32AudioBridge {
   WebSocket? _txSocket;
   StreamController<Uint8List>? _micStreamController;
   StreamSubscription<Uint8List>? _micSubscription;
-  Timer? _txTimer;
 
   final Queue<int> _txQueue = Queue<int>();
   Uint8List _micDownsampleCarry = Uint8List(0);
@@ -103,7 +96,6 @@ class Esp32AudioBridge {
   int _micWarmupUntilMs = 0;
   int _rxWarmupUntilMs = 0;
 
-  // GETTERS RESTAURADOS PARA LA UI
   bool get playerReady => _playerReady;
   bool get playerFailed => _playerFailed;
   bool get recorderFailed => _recorderFailed;
@@ -175,10 +167,7 @@ class Esp32AudioBridge {
     await _applyAudioRoute();
     await _startPlayerSafe();
     await _startRecorderSafe();
-    
-    // Vaciado súper rápido (10ms) con bucle While para evitar atascos de Timer.
-    _txTimer?.cancel();
-    _txTimer = Timer.periodic(const Duration(milliseconds: 10), (_) => _flushTxFrames());
+    // NOTA: Eliminamos el _txTimer. Ahora el micrófono empuja los datos directo (Event-Driven) para latencia cero.
   }
 
   Future<void> _startPlayerSafe() async {
@@ -198,11 +187,20 @@ class Esp32AudioBridge {
       }
     }
 
-    if (await _tryStartPlayer(sampleRate)) return;
-    await Future<void>.delayed(const Duration(milliseconds: 300));
-    if (await _tryStartPlayer(fallbackPlaybackSampleRate)) {
-      _playbackSampleRate = fallbackPlaybackSampleRate;
-      return;
+    if (Platform.isIOS) {
+      // CORRECCIÓN iOS: flutter_sound tiene bug de "voz aguda" a 16kHz en iOS.
+      // Forzamos 48kHz para usar nuestro propio upsampler interno y arreglar el tono.
+      if (await _tryStartPlayer(fallbackPlaybackSampleRate)) {
+        _playbackSampleRate = fallbackPlaybackSampleRate;
+        return;
+      }
+    } else {
+      if (await _tryStartPlayer(sampleRate)) return;
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      if (await _tryStartPlayer(fallbackPlaybackSampleRate)) {
+        _playbackSampleRate = fallbackPlaybackSampleRate;
+        return;
+      }
     }
     _playerFailed = true;
   }
@@ -371,29 +369,27 @@ class Esp32AudioBridge {
     final downsampled = _downsampleMic48kTo16k(bytes, incoming);
     if (downsampled.isEmpty) return;
 
-    // Descarte proactivo exacto como lo pidió el agente (Ring Buffer)
-    int start = 0;
-    if (downsampled.length > maxQueuedBytes) {
-      start = downsampled.length - maxQueuedBytes;
-      start -= start % 2;
-      droppedTxBytes += start;
+    // Agregar todo a la cola
+    for (int i = 0; i < downsampled.length; i++) {
+      _txQueue.addLast(downsampled[i]);
     }
 
-    final int bytesToAdd = downsampled.length - start;
-    while (_txQueue.length + bytesToAdd > maxQueuedBytes && _txQueue.length >= 2) {
-      _txQueue.removeFirst();
-      _txQueue.removeFirst();
-      droppedTxBytes += 2;
-    }
+    // Vaciar hacia el WebSocket de inmediato (Latencia Cero)
+    _flushTxFrames();
 
-    for (int i = start; i < downsampled.length; i++) _txQueue.addLast(downsampled[i]);
+    // Sistema de seguridad: Solo descartar si la red está colapsada (ej. > 1 segundo acumulado)
+    if (_txQueue.length > sampleRate * bytesPerSample) {
+      int excess = _txQueue.length - (sampleRate * bytesPerSample);
+      excess -= excess % 2;
+      for (int i = 0; i < excess; i++) _txQueue.removeFirst();
+      droppedTxBytes += excess;
+    }
   }
 
   void _flushTxFrames() {
     final ws = _txSocket;
     if (ws == null || ws.readyState != WebSocket.open || !_recorderStarted) return;
     
-    // Vaciado intensivo: Drena TODOS los paquetes acumulados de inmediato.
     while (_txQueue.length >= txFrameBytes) {
       final frame = Uint8List(txFrameBytes);
       for (int i = 0; i < txFrameBytes; i++) frame[i] = _txQueue.removeFirst();
@@ -425,7 +421,6 @@ class Esp32AudioBridge {
   Future<void> stop() async {
     if (!_started) return;
     _started = false;
-    _txTimer?.cancel();
     
     await _safeStopRecorder();
     await _safeClosePlayer();
